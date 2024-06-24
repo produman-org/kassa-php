@@ -37,6 +37,9 @@ class ListRequest implements RequestInterface
 
     public ?\DateTimeInterface $createdAtTo = null;
 
+    /** @var string[]|null */
+    public ?array $operationIds = null;
+
     public function getRequestContent(): array
     {
         $request = $this->getTraitRequestContent();

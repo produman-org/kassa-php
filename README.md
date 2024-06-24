@@ -211,6 +211,9 @@ $request->status = 'COMPLETE';
 $request->operationType = 'SELL';
 $request->createdAtFrom = new \DateTime('- 1 year');
 $request->createdAtTo = new \DateTime('now');
+$request->operationIds = [
+    '1ee57a8d-f1b4-6764-9ec7-a537555944ab',
+];
 $request->cursor = '1ee57a8d-f1b4-6764-9ec7-a537555944ab';
 /** @var ListDto $response */
 $response = $client->operations->list($request);
