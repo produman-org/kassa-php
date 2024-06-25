@@ -10,7 +10,6 @@
             "email": "kassa@produman.org"
         }
     ],
-    "version": "1.0.0",
     "require": {
         "php": ">=7.4.0",
         "ext-json": "*",
