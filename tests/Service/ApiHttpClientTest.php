@@ -51,6 +51,37 @@ final class ApiHttpClientTest extends TestCase
 
     /**
      * @testWith
+     * ["ru"]
+     * ["en"]
+     * ["de"]
+     * ["fr"]
+     * ["es"]
+     */
+    public function testSetLanguage(string $language): void
+    {
+        $symfonyHttpClient = new MockSymfonyHttpClient();
+
+        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
+
+        // without language
+        $apiHttpClient->request('GET', '');
+        $requestOptions = $symfonyHttpClient->getRequestOptions();
+
+        $this->assertContains('headers', array_keys($requestOptions));
+        $this->assertNotContains('Accept-Language', array_keys($requestOptions['headers']));
+
+        // with language
+        $apiHttpClient->setLanguage($language);
+        $apiHttpClient->request('GET', '');
+        $requestOptions = $symfonyHttpClient->getRequestOptions();
+
+        $this->assertContains('headers', array_keys($requestOptions));
+        $this->assertContains('Accept-Language', array_keys($requestOptions['headers']));
+        $this->assertEquals($language, $requestOptions['headers']['Accept-Language']);
+    }
+
+    /**
+     * @testWith
      * ["101", "102", 100]
      * ["201", "202", 200]
      * ["301", "302", 300]
@@ -245,6 +276,14 @@ final class ApiHttpClientTest extends TestCase
             ],
             'timeout' => $timeout,
         ];
+
+        if (0 === rand(0, 1)) {
+            $language = ['en', 'ru'][rand(0, 1)];
+
+            $apiHttpClient->setLanguage($language);
+
+            $options['headers']['Accept-Language'] = $language;
+        }
 
         if (0 === rand(0, 1)) {
             $clientToken = (string) rand(0, 999);

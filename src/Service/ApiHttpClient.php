@@ -38,6 +38,8 @@ class ApiHttpClient implements ApiHttpClientInterface
 
     private int $timeout;
 
+    private ?string $language = null;
+
     private ?string $clientToken = null;
 
     private ?string $lastXRateLimitRemaining = null;
@@ -78,6 +80,10 @@ class ApiHttpClient implements ApiHttpClientInterface
             ],
             'timeout' => $this->timeout,
         ];
+
+        if (null !== $this->language) {
+            $options['headers']['Accept-Language'] = $this->language;
+        }
 
         if (null !== $this->clientToken) {
             $options['headers']['X-CLIENT-TOKEN'] = $this->clientToken;
@@ -171,6 +177,11 @@ class ApiHttpClient implements ApiHttpClientInterface
     public function setClientToken(string $clientToken): void
     {
         $this->clientToken = $clientToken;
+    }
+
+    public function setLanguage(?string $language): void
+    {
+        $this->language = $language;
     }
 
     public function getLastXRateLimitRemaining(): ?string

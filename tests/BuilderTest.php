@@ -18,16 +18,16 @@ final class BuilderTest extends TestCase
 {
     /**
      * @testWith
-     * ["a", "aa", "aaa", 1]
-     * ["b", "bb", "bbb", 2]
-     * ["c", "cc", "ccc", 3]
-     * ["d", "dd", "ddd", 4]
-     * ["e", "ee", "eee", 5]
+     * ["a", "aa", "aaa", 1, "en"]
+     * ["b", "bb", "bbb", 2, "ru"]
+     * ["c", "cc", "ccc", 3, "en"]
+     * ["d", "dd", "ddd", 4, "ru"]
+     * ["e", "ee", "eee", 5, "en"]
      */
-    public function testBuildClient(string $clientToken, string $appId, string $appSecret, int $timeout): void
+    public function testBuildClient(string $clientToken, string $appId, string $appSecret, int $timeout, string $language): void
     {
         // without logger
-        $client = Builder::buildClient($clientToken, $appId, $appSecret, $timeout);
+        $client = Builder::buildClient($clientToken, $appId, $appSecret, $timeout, null, $language);
         $this->assertInstanceOf(Client::class, $client);
 
         $apiClient = ReflectionHelper::getProperty($client, 'apiClient');
@@ -39,7 +39,7 @@ final class BuilderTest extends TestCase
         // with logger
         $logger = new MockPsrLogger();
 
-        $client = Builder::buildClient($clientToken, $appId, $appSecret, $timeout, $logger);
+        $client = Builder::buildClient($clientToken, $appId, $appSecret, $timeout, $logger, $language);
         $this->assertInstanceOf(Client::class, $client);
 
         $apiClient = ReflectionHelper::getProperty($client, 'apiClient');
@@ -56,20 +56,21 @@ final class BuilderTest extends TestCase
         $this->assertEquals($appId, ReflectionHelper::getProperty($apiClient, 'appId'));
         $this->assertEquals($appSecret, ReflectionHelper::getProperty($apiClient, 'appSecret'));
         $this->assertEquals($timeout, ReflectionHelper::getProperty($apiClient, 'timeout'));
+        $this->assertEquals($language, ReflectionHelper::getProperty($apiClient, 'language'));
     }
 
     /**
      * @testWith
-     * ["aa", "aaa", 1]
-     * ["bb", "bbb", 2]
-     * ["cc", "ccc", 3]
-     * ["dd", "ddd", 4]
-     * ["ee", "eee", 5]
+     * ["aa", "aaa", 1, "en"]
+     * ["bb", "bbb", 2, "ru"]
+     * ["cc", "ccc", 3, "en"]
+     * ["dd", "ddd", 4, "ru"]
+     * ["ee", "eee", 5, "en"]
      */
-    public function testBuildApplicationClient(string $appId, string $appSecret, int $timeout): void
+    public function testBuildApplicationClient(string $appId, string $appSecret, int $timeout, string $language): void
     {
         // without logger
-        $client = Builder::buildApplicationClient($appId, $appSecret, $timeout);
+        $client = Builder::buildApplicationClient($appId, $appSecret, $timeout, null, $language);
         $this->assertInstanceOf(ApplicationClient::class, $client);
 
         $apiClient = ReflectionHelper::getProperty($client, 'apiClient');
@@ -81,7 +82,7 @@ final class BuilderTest extends TestCase
         // with logger
         $logger = new MockPsrLogger();
 
-        $client = Builder::buildApplicationClient($appId, $appSecret, $timeout, $logger);
+        $client = Builder::buildApplicationClient($appId, $appSecret, $timeout, $logger, $language);
         $this->assertInstanceOf(ApplicationClient::class, $client);
 
         $apiClient = ReflectionHelper::getProperty($client, 'apiClient');
@@ -97,5 +98,6 @@ final class BuilderTest extends TestCase
         $this->assertEquals($appId, ReflectionHelper::getProperty($apiClient, 'appId'));
         $this->assertEquals($appSecret, ReflectionHelper::getProperty($apiClient, 'appSecret'));
         $this->assertEquals($timeout, ReflectionHelper::getProperty($apiClient, 'timeout'));
+        $this->assertEquals($language, ReflectionHelper::getProperty($apiClient, 'language'));
     }
 }

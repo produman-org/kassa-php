@@ -59,15 +59,15 @@ require __DIR__ . '/vendor/autoload.php';
 use ProdumanApi\Builder;
 
 $client = Builder::buildClient(
-    'clientToken',
-    'appId',
-    'appSecret'
+    'someClientToken',
+    'someAppId',
+    'someAppSecret'
 );
 ```
 
 2. Для сервисных API запросов ([вебхуки](https://dev.produman.org/api#tag/Vebhuki) и [интеграции](https://dev.produman.org/api#tag/Integracii)) создайте экземпляр объекта клиента при помощи команды `buildApplicationClient` (аналогично, как в примере выше, но без указания `clientToken`).
 
-3. Дополнительно, при создании клиента, можно скорректировать параметр `timeout` для curl запросов, а так же использовать логгер, реализующий интерфейс `Psr\Log\LoggerInterface`.
+3. Дополнительно, при создании клиента, можно скорректировать параметр `timeout` для curl запросов, использовать логгер `Psr\Log\LoggerInterface` в параметре `logger`, а так же указать передачу заголовка `Accept-Language` в параметре `language`.
 
 4. Вызовите нужный метод API в объекте `$client`.
 
@@ -86,15 +86,14 @@ use ProdumanApi\Builder;
 use ProdumanApi\Client\Client;
 use Example\Logger;
 
-$logger = new Logger();
-
 /** @var Client $client */
 $client = Builder::buildClient(
-    'clientToken',
-    'appId',
-    'appSecret'
+    'someClientToken',
+    'someAppId',
+    'someAppSecret',
     30,
-    $logger
+    new Logger(),
+    'ru'
 );
 ```
 
@@ -448,14 +447,13 @@ use ProdumanApi\Builder;
 use ProdumanApi\Client\ApplicationClient;
 use Example\Logger;
 
-$logger = new Logger();
-
 /** @var ApplicationClient $client */
 $client = Builder::buildApplicationClient(
-    'appId',
-    'appSecret'
+    'someAppId',
+    'someAppSecret',
     30,
-    $logger
+    new Logger(),
+    'ru'
 );
 ```
 
@@ -536,9 +534,9 @@ use ProdumanApi\Exception\HttpException;
 use ProdumanApi\Exception\JsonResponseException;
 
 $client = Builder::buildClient(
-    'clientToken',
-    'appId',
-    'appSecret'
+    'someClientToken',
+    'someAppId',
+    'someAppSecret'
 );
 
 try {
@@ -562,9 +560,9 @@ try {
 use ProdumanApi\Builder;
 
 $client = Builder::buildClient(
-    'clientToken',
-    'appId',
-    'appSecret'
+    'someClientToken',
+    'someAppId',
+    'someAppSecret'
 );
   
 // квота  
