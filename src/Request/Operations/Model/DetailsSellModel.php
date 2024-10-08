@@ -31,6 +31,8 @@ class DetailsSellModel
 
     public ?string $settlementPlace = null;
 
+    public ?string $documentNumber = null;
+
     /** @var PaymentSolutionModel[]|null */
     public ?array $paymentSolutions = null;
 

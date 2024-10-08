@@ -333,6 +333,7 @@ $details->client = $operationClient;
 $details->receiptContact = 'test@test.ru';
 $details->print = true;
 $details->settlementPlace = 'Россия, Москва';
+$details->documentNumber = '12345'
 $details->paymentSolutions = [$paymentSolution];
 $details->positions = [$position];
 $request = new CreateSell();
