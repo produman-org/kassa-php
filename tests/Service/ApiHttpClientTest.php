@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use ProdumanApi\Exception\ApiException;
 use ProdumanApi\Exception\HttpException;
 use ProdumanApi\Service\ApiHttpClient;
+use ProdumanApi\Service\LoggerHelper;
 use ProdumanApi\Tests\Mock\MockPsrLogger;
 use ProdumanApi\Tests\Mock\MockSymfonyClientException;
 use ProdumanApi\Tests\Mock\MockSymfonyHttpClient;
@@ -248,13 +249,9 @@ final class ApiHttpClientTest extends TestCase
 
         $this->assertContains('API_URL', array_keys($constants));
         $this->assertContains('API_VERSION', array_keys($constants));
-        $this->assertContains('REQUEST_LOG_FORMAT', array_keys($constants));
-        $this->assertContains('RESPONSE_LOG_FORMAT', array_keys($constants));
 
         $apiUrl = $constants['API_URL'];
         $apiVersion = $constants['API_VERSION'];
-        $requestLogFormat = $constants['REQUEST_LOG_FORMAT'];
-        $responseLogFormat = $constants['RESPONSE_LOG_FORMAT'];
 
         $symfonyResponse = new MockSymfonyResponse([
             'x-ratelimit-remaining' => [$lastXRateLimitRemaining],
@@ -311,25 +308,44 @@ final class ApiHttpClientTest extends TestCase
 
         $logs = $psrLogger->getLogs();
 
-        $this->assertCount(2, $logs);
+        $this->assertCount(4, $logs);
         $this->assertEquals([
-            'debug',
-            sprintf($requestLogFormat,
+            'info',
+            sprintf(LoggerHelper::REQUEST_LOG_FORMAT,
                 $method,
                 $uri,
-                json_encode($options)
             ),
             [],
         ], $logs[0]);
         $this->assertEquals([
             'debug',
-            sprintf($responseLogFormat,
-                $symfonyResponse->getHeaders()['x-ratelimit-remaining'][0] ?? null,
-                $symfonyResponse->getHeaders()['x-ratelimit-limit'][0] ?? null,
-                $symfonyResponse->getStatusCode(),
-                $symfonyResponse->getContent(),
+            sprintf(LoggerHelper::REQUEST_LOG_FORMAT,
+                $method,
+                $uri,
+            ),
+            LoggerHelper::prepareRequestOptionsContext($options),
+        ], $logs[1]);
+
+        $this->assertEquals([
+            'info',
+            sprintf(LoggerHelper::RESPONSE_LOG_FORMAT,
+                $method,
+                $uri,
+                $symfonyResponse->getStatusCode()
             ),
             [],
-        ], $logs[1]);
+        ], $logs[2]);
+        $this->assertEquals([
+            'debug',
+            sprintf(LoggerHelper::RESPONSE_LOG_FORMAT,
+                $method,
+                $uri,
+                $symfonyResponse->getStatusCode()
+            ), [
+                'lastXRateLimitRemaining' => $symfonyResponse->getHeaders()['x-ratelimit-remaining'][0] ?? null,
+                'lastXRateLimitLimit' => $symfonyResponse->getHeaders()['x-ratelimit-limit'][0] ?? null,
+                'content' => $symfonyResponse->getContent(),
+            ],
+        ], $logs[3]);
     }
 }

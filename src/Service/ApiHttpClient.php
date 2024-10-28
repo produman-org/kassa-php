@@ -24,10 +24,6 @@ class ApiHttpClient implements ApiHttpClientInterface
 
     private const API_VERSION = 'v1';
 
-    private const REQUEST_LOG_FORMAT = '[Produman API Request]: %s URL: "%s", Options: "%s"';
-
-    private const RESPONSE_LOG_FORMAT = '[Produman API Response]: XRateLimitRemaining: "%s", XRateLimitLimit: "%s", StatusCode: "%s", Body: "%s"';
-
     private HttpClientInterface $httpClient;
 
     private LoggerInterface $logger;
@@ -99,12 +95,17 @@ class ApiHttpClient implements ApiHttpClientInterface
         }
 
         if (!($this->logger instanceof NullLogger)) {
-            $this->logger->debug(sprintf(
-                self::REQUEST_LOG_FORMAT,
+            $this->logger->info(sprintf(
+                LoggerHelper::REQUEST_LOG_FORMAT,
                 $method,
-                $uri,
-                json_encode($options)
+                $uri
             ));
+
+            $this->logger->debug(sprintf(
+                LoggerHelper::REQUEST_LOG_FORMAT,
+                $method,
+                $uri
+            ), LoggerHelper::prepareRequestOptionsContext($options));
         }
 
         try {
@@ -119,17 +120,41 @@ class ApiHttpClient implements ApiHttpClientInterface
             $responseContent = $response->getContent();
 
             if (!($this->logger instanceof NullLogger)) {
-                $this->logger->debug(sprintf(
-                    self::RESPONSE_LOG_FORMAT,
-                    $this->lastXRateLimitRemaining,
-                    $this->lastXRateLimitLimit,
-                    $this->lastStatusCode,
-                    $responseContent
+                $this->logger->info(sprintf(
+                    LoggerHelper::RESPONSE_LOG_FORMAT,
+                    $method,
+                    $uri,
+                    $this->lastStatusCode
                 ));
+
+                $this->logger->debug(sprintf(
+                    LoggerHelper::RESPONSE_LOG_FORMAT,
+                    $method,
+                    $uri,
+                    $this->lastStatusCode
+                ), [
+                    'lastXRateLimitRemaining' => $this->lastXRateLimitRemaining,
+                    'lastXRateLimitLimit' => $this->lastXRateLimitLimit,
+                    'content' => $responseContent,
+                ]);
             }
 
             return $responseContent;
         } catch (ClientExceptionInterface $e) {
+            if (!($this->logger instanceof NullLogger)) {
+                $this->logger->error(sprintf(
+                    LoggerHelper::THROW_LOG_FORMAT,
+                    $e->getCode(),
+                    $e->getMessage()
+                ));
+
+                $this->logger->debug(sprintf(
+                    LoggerHelper::THROW_LOG_FORMAT,
+                    $e->getCode(),
+                    $e->getMessage()
+                ), LoggerHelper::prepareThrowableContext($e));
+            }
+
             try {
                 $responseHeaders = $e->getResponse()->getHeaders(false);
 
@@ -170,6 +195,20 @@ class ApiHttpClient implements ApiHttpClientInterface
                 throw new HttpException($e->getMessage(), $e->getCode(), $e);
             }
         } catch (TransportExceptionInterface|RedirectionExceptionInterface|ServerExceptionInterface $e) {
+            if (!($this->logger instanceof NullLogger)) {
+                $this->logger->error(sprintf(
+                    LoggerHelper::THROW_LOG_FORMAT,
+                    $e->getCode(),
+                    $e->getMessage()
+                ));
+
+                $this->logger->debug(sprintf(
+                    LoggerHelper::THROW_LOG_FORMAT,
+                    $e->getCode(),
+                    $e->getMessage()
+                ), LoggerHelper::prepareThrowableContext($e));
+            }
+
             throw new HttpException($e->getMessage(), $e->getCode(), $e);
         }
     }
