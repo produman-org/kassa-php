@@ -29,6 +29,8 @@ class DetailsSellModel
 
     public ?bool $print = null;
 
+    public ?bool $internetPayment = null;
+
     public ?string $settlementPlace = null;
 
     public ?string $documentNumber = null;

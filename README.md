@@ -332,6 +332,7 @@ $details->taxationSystem = 'OSN';
 $details->client = $operationClient;
 $details->receiptContact = 'test@test.ru';
 $details->print = true;
+$details->internetPayment = true;
 $details->settlementPlace = 'Россия, Москва';
 $details->documentNumber = '12345'
 $details->paymentSolutions = [$paymentSolution];
