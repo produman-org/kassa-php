@@ -19,6 +19,8 @@ class CounterpartyDto
 
     public ?string $phone = null;
 
+    public ?string $email = null;
+
     public ?string $inn = null;
 
     public ?string $kpp = null;
