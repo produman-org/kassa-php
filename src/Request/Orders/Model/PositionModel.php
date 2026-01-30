@@ -17,7 +17,7 @@ class PositionModel
     public ?float $price = null;
 
     /**
-     * Potential values are 'WITHOUT', '0', '10', '10_110', '20', '20_120'.
+     * Potential values are 'WITHOUT', '0', '10', '10_110', '20', '20_120', '22', '22122'
      */
     public ?string $paymentVat = null;
 
