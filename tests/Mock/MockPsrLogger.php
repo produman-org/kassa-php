@@ -10,7 +10,7 @@ class MockPsrLogger extends AbstractLogger
 {
     private array $logs = [];
 
-    public function log($level, $message, array $context = [])
+    public function log($level, $message, array $context = []): void
     {
         $this->logs[] = [
             $level,

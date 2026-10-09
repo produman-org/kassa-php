@@ -14,6 +14,8 @@ class OrderPositionModel
 
     public ?string $name = null;
 
+    public ?string $itemCode = null;
+
     public ?float $quantity = null;
 
     public ?float $price = null;
