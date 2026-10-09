@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace ProdumanApi\Tests\Mock;
 
+use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\ResponseStream;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 use Symfony\Contracts\HttpClient\ResponseStreamInterface;
 
-class MockSymfonyHttpClient implements HttpClientInterface
+class MockSymfonyHttpClient extends MockHttpClient
 {
     private ?MockSymfonyResponse $response;
 
@@ -23,6 +23,7 @@ class MockSymfonyHttpClient implements HttpClientInterface
 
     public function __construct(?MockSymfonyResponse $response = null, ?\Exception $exception = null)
     {
+        parent::__construct();
         $this->response = $response;
         $this->exception = $exception;
     }

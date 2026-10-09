@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ProdumanApi\Tests\Mock;
 
-use Symfony\Contracts\HttpClient\ResponseInterface;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
-class MockSymfonyResponse implements ResponseInterface
+class MockSymfonyResponse extends MockResponse
 {
     private array $header;
 
@@ -19,6 +19,7 @@ class MockSymfonyResponse implements ResponseInterface
         $this->header = $header;
         $this->body = $body;
         $this->statusCode = $statusCode;
+        parent::__construct(json_encode($body), ['http_code' => $statusCode]);
     }
 
     public function getStatusCode(): int
@@ -45,7 +46,4 @@ class MockSymfonyResponse implements ResponseInterface
     {
     }
 
-    public function getInfo(?string $type = null)
-    {
-    }
 }
