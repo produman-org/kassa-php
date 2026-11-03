@@ -2,6 +2,8 @@ name: Проверки SDK
 
 on:
   push:
+    branches: [master]
+    tags: ['*']
   pull_request:
 
 permissions:
@@ -9,12 +11,32 @@ permissions:
 
 jobs:
   tests:
-    name: PHP 8.5 / ${{ matrix.dependencies }}
+    name: PHP ${{ matrix.php }} / HttpClient ${{ matrix.http }} / ${{ matrix.mode }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        dependencies: ['8.1', 'latest', 'lowest']
+        php: ['8.2', '8.3', '8.4', '8.5']
+        http: ['5.4', '6.0', '7.0', '8.0']
+        mode: [latest]
+        exclude:
+          - php: '8.2'
+            http: '8.0'
+          - php: '8.3'
+            http: '8.0'
+        include:
+          - php: '8.2'
+            http: '5.4'
+            mode: lowest
+          - php: '8.2'
+            http: '6.0'
+            mode: lowest
+          - php: '8.2'
+            http: '7.0'
+            mode: lowest
+          - php: '8.4'
+            http: '8.0'
+            mode: lowest
     env:
       COMPOSER_NO_INTERACTION: '1'
     steps:
@@ -25,7 +47,7 @@ jobs:
       - name: Подготовить PHP и Composer
         uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
         with:
-          php-version: '8.5'
+          php-version: ${{ matrix.php }}
           extensions: curl, dom, mbstring, xml, xmlwriter
           tools: composer:v2
           coverage: none
@@ -35,40 +57,20 @@ jobs:
           find src tests tools -name '*.php' -print0 | xargs -0 -n1 php -l
           echo "KASSA_TEST_ARTIFACTS=$RUNNER_TEMP/sdk-artifacts" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/sdk-artifacts"
-      - name: Установить основные зависимости
-        if: matrix.dependencies != 'lowest'
+      - name: Проверить production-зависимости, чистую установку и полный набор
         env:
-          DEPENDENCIES: ${{ matrix.dependencies }}
+          HTTP_LINE: ${{ matrix.http }}
+          DEPENDENCY_MODE: ${{ matrix.mode }}
         run: |
-          if [ "$DEPENDENCIES" = '8.1' ]; then
-            composer update --with 'symfony/http-client:8.1.*' --prefer-dist --no-progress --no-plugins --no-scripts
+          if [ "$DEPENDENCY_MODE" = 'lowest' ]; then
+            php tools/check-consumer.php "--http-client=^$HTTP_LINE" --prefer-lowest --run-tests
           else
-            composer update --prefer-dist --no-progress --no-plugins --no-scripts
+            php tools/check-consumer.php "--http-client=^$HTTP_LINE" --run-tests
           fi
-          composer show symfony/http-client
-          composer check-platform-reqs
-          composer audit
-          cp composer.lock "$KASSA_TEST_ARTIFACTS/sdk.lock"
-      - name: Запустить тесты библиотеки
-        if: matrix.dependencies != 'lowest'
-        run: composer test -- --log-junit "$KASSA_TEST_ARTIFACTS/junit.xml"
-      - name: Проверить чистую установку SDK
-        if: matrix.dependencies != 'lowest'
-        env:
-          DEPENDENCIES: ${{ matrix.dependencies }}
-        run: |
-          if [ "$DEPENDENCIES" = 'latest' ]; then
-            php tools/check-consumer.php --latest
-          else
-            composer test:consumer
-          fi
-      - name: Проверить нижние production-границы и тесты
-        if: matrix.dependencies == 'lowest'
-        run: composer test:lowest
       - name: Сохранить версии зависимостей и результаты
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sdk-${{ matrix.dependencies }}
+          name: sdk-php${{ matrix.php }}-http${{ matrix.http }}-${{ matrix.mode }}
           path: ${{ runner.temp }}/sdk-artifacts
           if-no-files-found: ignore

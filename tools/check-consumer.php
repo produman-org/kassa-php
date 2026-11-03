@@ -55,6 +55,15 @@ $server = null;
 $environment = [];
 $exitCode = 0;
 try {
+    $sdkManifest = json_decode(file_get_contents($sdkRoot . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+    $httpConstraint = $sdkManifest['require']['symfony/http-client'];
+    foreach (array_slice($argv, 1) as $argument) {
+        if (str_starts_with($argument, '--http-client=')) {
+            $httpConstraint = substr($argument, strlen('--http-client='));
+        } elseif (!in_array($argument, ['--latest', '--prefer-lowest', '--run-tests'], true)) {
+            throw new InvalidArgumentException('Неизвестный параметр: ' . $argument);
+        }
+    }
     mkdir($project, 0700, true);
     mkdir($package, 0700);
     copy($sdkRoot . '/composer.json', $package . '/composer.json');
@@ -62,9 +71,9 @@ try {
     $manifest = [
         'name' => 'local/kassa-sdk-consumer-check',
         'require' => [
-            'php' => '^8.5',
+            'php' => $sdkManifest['require']['php'],
             'produman-org/kassa-php' => 'dev-sdk-check',
-            'symfony/http-client' => in_array('--latest', $argv, true) ? '^8.1' : '8.1.*',
+            'symfony/http-client' => $httpConstraint,
         ],
         'repositories' => [[
             'type' => 'path', 'url' => $package,
@@ -139,7 +148,7 @@ CHECK
             $pinned[$dependency['name']] = $dependency['version'];
             $manifest['require'][$dependency['name']] = $dependency['version'];
         }
-        $manifest['require-dev'] = ['phpunit/phpunit' => '^13.4'];
+        $manifest['require-dev'] = ['phpunit/phpunit' => $sdkManifest['require-dev']['phpunit/phpunit']];
         $manifest['autoload-dev'] = ['psr-4' => ['ProdumanApi\\Tests\\' => $sdkRoot . '/tests/']];
         $writeManifest();
         runCommand(['composer', 'update', '--no-interaction', '--no-progress', '--prefer-dist', '--no-plugins', '--no-scripts'], $project);
@@ -153,7 +162,7 @@ CHECK
         $testCommand = [PHP_BINARY, '-d', 'error_reporting=-1', $project . '/vendor/bin/phpunit', '--configuration', $sdkRoot . '/phpunit.xml.dist', '--bootstrap', $project . '/vendor/autoload.php'];
         if ($artifacts) {
             copy($project . '/composer.lock', $artifacts . '/consumer-tests.lock');
-            array_push($testCommand, '--log-junit', $artifacts . '/lowest-junit.xml');
+            array_push($testCommand, '--log-junit', $artifacts . '/consumer-junit.xml');
         }
         runCommand($testCommand, $project);
     }
