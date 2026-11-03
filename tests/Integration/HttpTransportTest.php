@@ -175,6 +175,7 @@ final class HttpTransportTest extends TestCase
         } catch (HttpException $error) {
             self::assertNotNull($error->getPrevious());
         }
+        $this->server->waitForPendingRequests();
         self::assertCount(1, $this->server->requests());
         self::assertSame('POST', $this->server->requests()[0]['method']);
     }

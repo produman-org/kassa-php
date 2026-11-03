@@ -7,6 +7,7 @@ namespace ProdumanApi\Tests\Support;
 final class LocalServer
 {
     private array $processes = [];
+    private array $markers = [];
     public readonly string $directory;
     public readonly int $port;
     public readonly string $url;
@@ -36,6 +37,7 @@ final class LocalServer
         }
         fclose($socket);
         $marker = bin2hex(random_bytes(8));
+        $this->markers[$role] = $marker;
         $environment = array_merge(getenv(), [
             'KASSA_FIXTURE_DIRECTORY' => $this->directory,
             'KASSA_FIXTURE_ROLE' => $role,
@@ -75,6 +77,17 @@ final class LocalServer
         }
 
         return array_map(static fn ($line) => json_decode($line, true, 512, JSON_THROW_ON_ERROR), file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES));
+    }
+
+    public function waitForPendingRequests(): void
+    {
+        // Однопоточный сервер обработает этот барьер после уже отправленных запросов,
+        // в том числе повторов, ожидающих завершения блокирующего обработчика.
+        $context = stream_context_create(['http' => ['timeout' => 8, 'ignore_errors' => true]]);
+        $marker = @file_get_contents($this->url . '/health', false, $context);
+        if ($this->markers['origin'] !== $marker) {
+            throw new \RuntimeException('HTTP-сервер не обработал очередь запросов за отведённое время');
+        }
     }
 
     public function stop(): void

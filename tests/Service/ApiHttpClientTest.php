@@ -15,6 +15,9 @@ use Symfony\Component\HttpClient\Exception\TransportException;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
 
 final class ApiHttpClientTest extends TestCase
 {
@@ -168,23 +171,35 @@ final class ApiHttpClientTest extends TestCase
         self::assertNull($api->getLastStatusCode());
     }
 
-    public function testMetadataKeptOnFailureReadingBody(): void
+    #[TestWith([200])]
+    #[TestWith([400])]
+    #[TestWith([302])]
+    #[TestWith([500])]
+    public function testMetadataKeptOnFailureReadingBody(int $status): void
     {
-        $cause = new TransportException('Ошибка тела');
-        $body = (static function () use ($cause) {
+        $responseFactory = static fn () => new MockResponse((static function () {
             yield '{';
-            yield $cause;
-        })();
-        $response = new MockResponse($body, ['http_code' => 200, 'response_headers' => ['x-ratelimit-remaining: 9']]);
-        $api = new ApiHttpClient(new MockHttpClient($response), new NullLogger(), '', '', 1);
+            yield new TransportException('Ошибка тела');
+        })(), ['http_code' => $status, 'response_headers' => ['Content-Type: application/json', 'x-ratelimit-remaining: 9', 'x-ratelimit-limit: 10']]);
+        $reference = (new MockHttpClient($responseFactory()))->request('GET', 'https://fixture.test/orders');
+        try {
+            $reference->getContent();
+            self::fail('Ожидалась исходная ошибка Symfony');
+        } catch (TransportExceptionInterface|HttpExceptionInterface $referenceCause) {
+            // Версии Symfony различаются: сбой может прервать создание HTTP-исключения.
+            // Для 4xx SDK дополнительно читает тело и получает неподавленную ошибку.
+            $causeClass = 400 === $status ? TransportException::class : $referenceCause::class;
+        }
+        $api = new ApiHttpClient(new MockHttpClient($responseFactory()), new NullLogger(), '', '', 1);
         try {
             $api->request('GET', 'orders');
             self::fail('Ожидалась ошибка чтения тела');
         } catch (HttpException $error) {
-            self::assertInstanceOf(TransportException::class, $error->getPrevious());
+            self::assertInstanceOf($causeClass, $error->getPrevious());
         }
-        self::assertSame(200, $api->getLastStatusCode());
+        self::assertSame($status, $api->getLastStatusCode());
         self::assertSame('9', $api->getLastXRateLimitRemaining());
+        self::assertSame('10', $api->getLastXRateLimitLimit());
     }
 
     #[TestWith(['{"message":"Ошибка","code":"VALIDATION_ERROR","details":{"field":"name"}}', true])]
@@ -251,23 +266,79 @@ final class ApiHttpClientTest extends TestCase
         }
     }
 
-    public function testClientExceptionRaisedDirectlyByTransportRetainsMetadata(): void
+    #[TestWith([400, ApiException::class])]
+    #[TestWith([302, HttpException::class])]
+    #[TestWith([500, HttpException::class])]
+    public function testHttpExceptionRaisedDirectlyByTransportRetainsMetadata(int $status, string $exceptionClass): void
     {
-        $response = (new MockHttpClient(new MockResponse('{}', ['http_code' => 400, 'response_headers' => ['x-ratelimit-remaining: 7']])))->request('GET', 'https://fixture.test/orders');
+        $response = (new MockHttpClient(new MockResponse('{}', ['http_code' => $status, 'response_headers' => ['x-ratelimit-remaining: 7', 'x-ratelimit-limit: 10']])))->request('GET', 'https://fixture.test/orders');
         try {
             $response->getContent();
             self::fail('Ожидалась исходная ошибка HTTP');
-        } catch (\Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface $cause) {
-            $http = new MockHttpClient(static function () use ($cause) { throw $cause; });
+        } catch (HttpExceptionInterface $cause) {
+            $calls = 0;
+            $http = new MockHttpClient(static function () use (&$calls, $cause) {
+                if (2 === ++$calls) {
+                    throw $cause;
+                }
+
+                return new MockResponse('{}', 1 === $calls ? ['response_headers' => ['x-ratelimit-remaining: 5', 'x-ratelimit-limit: 20']] : []);
+            });
             $api = new ApiHttpClient($http, new NullLogger(), '', '', 1);
+            $api->request('GET', 'orders');
+            self::assertSame(200, $api->getLastStatusCode());
+            self::assertSame('5', $api->getLastXRateLimitRemaining());
+            self::assertSame('20', $api->getLastXRateLimitLimit());
             try {
                 $api->request('GET', 'orders');
-                self::fail('Ожидалась ошибка API');
-            } catch (ApiException $error) {
+                self::fail('Ожидалась ошибка HTTP/API');
+            } catch (\RuntimeException $error) {
+                self::assertInstanceOf($exceptionClass, $error);
                 self::assertSame($cause, $error->getPrevious());
             }
-            self::assertSame(400, $api->getLastStatusCode());
+            self::assertSame($status, $api->getLastStatusCode());
             self::assertSame('7', $api->getLastXRateLimitRemaining());
+            self::assertSame('10', $api->getLastXRateLimitLimit());
+            $api->request('GET', 'orders');
+            self::assertSame(200, $api->getLastStatusCode());
+            self::assertNull($api->getLastXRateLimitRemaining());
+            self::assertNull($api->getLastXRateLimitLimit());
         }
+    }
+
+    #[TestWith([TransportException::class])]
+    #[TestWith([\LogicException::class])]
+    public function testFailureRecoveringEarlyHttpMetadata(string $failureClass): void
+    {
+        $failure = new $failureClass('Ошибка чтения заголовков');
+        $response = $this->createStub(ResponseInterface::class);
+        $response->method('getStatusCode')->willReturn(500);
+        $response->method('getHeaders')->willThrowException($failure);
+        $cause = new class($response) extends \RuntimeException implements ServerExceptionInterface {
+            public function __construct(private ResponseInterface $response)
+            {
+                parent::__construct('Ранняя ошибка сервера');
+            }
+
+            public function getResponse(): ResponseInterface
+            {
+                return $this->response;
+            }
+        };
+        $api = new ApiHttpClient(new MockHttpClient(static fn () => throw $cause), new NullLogger(), '', '', 1);
+        try {
+            $api->request('GET', 'orders');
+            self::fail('Ожидалась ошибка чтения метаданных');
+        } catch (\RuntimeException|\LogicException $error) {
+            if ($failure instanceof TransportException) {
+                self::assertInstanceOf(HttpException::class, $error);
+                self::assertSame($failure, $error->getPrevious());
+            } else {
+                self::assertSame($failure, $error);
+            }
+        }
+        self::assertSame(500, $api->getLastStatusCode());
+        self::assertNull($api->getLastXRateLimitRemaining());
+        self::assertNull($api->getLastXRateLimitLimit());
     }
 }

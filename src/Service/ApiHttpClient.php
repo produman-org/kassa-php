@@ -10,6 +10,7 @@ use ProdumanApi\Interfaces\ApiHttpClientInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
@@ -117,6 +118,15 @@ class ApiHttpClient implements ApiHttpClientInterface
                 $error,
             );
         } catch (TransportExceptionInterface|RedirectionExceptionInterface|ServerExceptionInterface $error) {
+            if ($error instanceof HttpExceptionInterface && null === $this->lastStatusCode) {
+                try {
+                    $this->captureResponseMetadata($error->getResponse());
+                } catch (TransportExceptionInterface $readError) {
+                    $this->logFailure($readError);
+
+                    throw new HttpException($readError->getMessage(), $readError->getCode(), $readError);
+                }
+            }
             $this->logFailure($error);
 
             throw new HttpException($error->getMessage(), $error->getCode(), $error);
