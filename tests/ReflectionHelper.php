@@ -18,7 +18,6 @@ class ReflectionHelper
         $class = new \ReflectionClass($object);
 
         $prop = $class->getProperty($property);
-        $prop->setAccessible(true);
 
         return $prop->getValue($object);
     }
@@ -28,7 +27,6 @@ class ReflectionHelper
         $class = new \ReflectionClass($object);
 
         $prop = $class->getParentClass()->getProperty($property);
-        $prop->setAccessible(true);
 
         return $prop->getValue($object);
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ProdumanApi\Tests;
 
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use ProdumanApi\Builder;
 use ProdumanApi\Client\ApplicationClient;
@@ -16,14 +17,11 @@ use Symfony\Component\HttpClient\CurlHttpClient;
 
 final class BuilderTest extends TestCase
 {
-    /**
-     * @testWith
-     * ["a", "aa", "aaa", 1, "en"]
-     * ["b", "bb", "bbb", 2, "ru"]
-     * ["c", "cc", "ccc", 3, "en"]
-     * ["d", "dd", "ddd", 4, "ru"]
-     * ["e", "ee", "eee", 5, "en"]
-     */
+    #[TestWith(['a', 'aa', 'aaa', 1, 'en'])]
+    #[TestWith(['b', 'bb', 'bbb', 2, 'ru'])]
+    #[TestWith(['c', 'cc', 'ccc', 3, 'en'])]
+    #[TestWith(['d', 'dd', 'ddd', 4, 'ru'])]
+    #[TestWith(['e', 'ee', 'eee', 5, 'en'])]
     public function testBuildClient(string $clientToken, string $appId, string $appSecret, int $timeout, string $language): void
     {
         // without logger
@@ -59,14 +57,11 @@ final class BuilderTest extends TestCase
         $this->assertEquals($language, ReflectionHelper::getProperty($apiClient, 'language'));
     }
 
-    /**
-     * @testWith
-     * ["aa", "aaa", 1, "en"]
-     * ["bb", "bbb", 2, "ru"]
-     * ["cc", "ccc", 3, "en"]
-     * ["dd", "ddd", 4, "ru"]
-     * ["ee", "eee", 5, "en"]
-     */
+    #[TestWith(['aa', 'aaa', 1, 'en'])]
+    #[TestWith(['bb', 'bbb', 2, 'ru'])]
+    #[TestWith(['cc', 'ccc', 3, 'en'])]
+    #[TestWith(['dd', 'ddd', 4, 'ru'])]
+    #[TestWith(['ee', 'eee', 5, 'en'])]
     public function testBuildApplicationClient(string $appId, string $appSecret, int $timeout, string $language): void
     {
         // without logger

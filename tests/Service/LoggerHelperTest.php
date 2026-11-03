@@ -4,61 +4,31 @@ declare(strict_types=1);
 
 namespace ProdumanApi\Tests\Service;
 
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use ProdumanApi\Service\LoggerHelper;
-use ProdumanApi\Tests\ReflectionHelper;
 
 final class LoggerHelperTest extends TestCase
 {
-    public function testConstants(): void
+    public function testRequestContextUsesOnlyTransportMetadata(): void
     {
-        $constants = ReflectionHelper::getConstants(LoggerHelper::class);
-
-        $this->assertContains('REQUEST_LOG_FORMAT', array_keys($constants));
-        $this->assertContains('RESPONSE_LOG_FORMAT', array_keys($constants));
-        $this->assertContains('THROW_LOG_FORMAT', array_keys($constants));
-
-        $this->assertEquals('[Produman API Request]: %s URL: "%s"', $constants['REQUEST_LOG_FORMAT']);
-        $this->assertEquals('[Produman API Response]: %s URL: "%s" ResponseStatusCode: "%s"', $constants['RESPONSE_LOG_FORMAT']);
-        $this->assertEquals('[Produman API Throw]: Code: "%s", Message: "%s"', $constants['THROW_LOG_FORMAT']);
+        $options = ['timeout' => 5, 'max_redirects' => 0, 'headers' => ['X-APP-SECRET' => 'secret'], 'query' => ['token' => 'secret'], 'body' => '{"secret":"value"}'];
+        self::assertSame(['timeout' => 5, 'max_redirects' => 0], LoggerHelper::prepareRequestOptionsContext($options));
+        self::assertSame('secret', $options['headers']['X-APP-SECRET']);
     }
 
-    /**
-     * @testWith
-     * [{"a": "aaa", "X-APP-SECRET": "aaa", "aa": {"X-CLIENT-TOKEN": "aaa", "aa": "aaa"}}]
-     * [{"X-APP-SECRET": "bbb", "b": "bbb", "bb": {"X-CLIENT-TOKEN": "bbb", "bb": "bbb"}}]
-     * [{"cc": {"X-CLIENT-TOKEN": "ccc", "cc": "ccc"}, "c": "ccc", "X-APP-SECRET": "ccc"}]
-     */
-    public function testPrepareRequestOptionsContext(array $options)
+    public function testThrowableContextDoesNotIncludeMessageOrTrace(): void
     {
-        $expectedOptions = $options;
-
-        array_walk_recursive($expectedOptions, function (&$item, $key) {
-            if (in_array($key, ['X-APP-SECRET', 'X-CLIENT-TOKEN'])) {
-                $item = '*****';
-            }
-        });
-
-        $this->assertEquals($expectedOptions, LoggerHelper::prepareRequestOptionsContext($options));
+        $error = new \RuntimeException('secret', 123);
+        self::assertSame(['exceptionClass' => \RuntimeException::class, 'code' => 123], LoggerHelper::prepareThrowableContext($error));
     }
 
-    /**
-     * @testWith
-     * ["aaa", 1]
-     * ["bbb", 2]
-     * ["ccc", 3]
-     */
-    public function testPrepareThrowableContext(string $message, int $code)
+    #[TestWith(['https://user:password@example.test/path?token=secret#fragment', 'https://example.test/path'])]
+    #[TestWith(['http://127.0.0.1:42100/kassa', 'http://127.0.0.1:42100/kassa'])]
+    #[TestWith(['not-a-url', '[invalid URL]'])]
+    #[TestWith(['http://example.test:99999', '[invalid URL]'])]
+    public function testUrlLoggingRemovesCredentialsAndQuery(string $url, string $expected): void
     {
-        try {
-            throw new \Exception($message, $code);
-        } catch (\Throwable $throwable) {
-            $this->assertEquals([
-                'file' => $throwable->getFile(),
-                'line' => $throwable->getLine(),
-                'exceptionClass' => get_class($throwable),
-                'trace' => $throwable->getTraceAsString(),
-            ], LoggerHelper::prepareThrowableContext($throwable));
-        }
+        self::assertSame($expected, LoggerHelper::prepareUrl($url));
     }
 }

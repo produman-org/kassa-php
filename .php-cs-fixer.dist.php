@@ -16,4 +16,4 @@ return (new PhpCsFixer\Config())
     ])
     ->setFinder($finder)
     ->setRiskyAllowed(true)
-    ->setLineEnding("\r\n");
+    ->setLineEnding("\n");

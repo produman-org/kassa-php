@@ -14,43 +14,26 @@ use Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
 
-/**
- * @see \ProdumanApi\Tests\Service\ApiHttpClientTest
- */
 class ApiHttpClient implements ApiHttpClientInterface
 {
     private const API_URL = 'https://api.produman.org/kassa';
-
     private const API_VERSION = 'v1';
 
-    private HttpClientInterface $httpClient;
-
-    private LoggerInterface $logger;
-
-    private string $appId;
-
-    private string $appSecret;
-
-    private int $timeout;
-
     private ?string $language = null;
-
     private ?string $clientToken = null;
-
     private ?string $lastXRateLimitRemaining = null;
-
     private ?string $lastXRateLimitLimit = null;
-
     private ?int $lastStatusCode = null;
 
-    public function __construct(HttpClientInterface $httpClient, LoggerInterface $logger, string $appId, string $appSecret, int $timeout)
-    {
-        $this->httpClient = $httpClient;
-        $this->logger = $logger;
-        $this->appId = $appId;
-        $this->appSecret = $appSecret;
-        $this->timeout = $timeout;
+    public function __construct(
+        private HttpClientInterface $httpClient,
+        private LoggerInterface $logger,
+        private string $appId,
+        private string $appSecret,
+        private int $timeout,
+    ) {
     }
 
     /**
@@ -59,158 +42,112 @@ class ApiHttpClient implements ApiHttpClientInterface
      */
     public function request(string $method, string $action, array $query = [], string $body = ''): string
     {
-        $url = self::API_URL;
+        $this->lastStatusCode = null;
+        $this->lastXRateLimitRemaining = null;
+        $this->lastXRateLimitLimit = null;
 
-        if (!empty(getenv('PRODUMAN_API_URL'))) {
-            $url = getenv('PRODUMAN_API_URL');
-        } elseif (!empty($_ENV['PRODUMAN_API_URL'])) {
-            $url = $_ENV['PRODUMAN_API_URL'];
-        }
-
+        $url = getenv('PRODUMAN_API_URL') ?: ($_ENV['PRODUMAN_API_URL'] ?? null) ?: self::API_URL;
         $uri = sprintf('%s/%s/%s', $url, self::API_VERSION, $action);
-
+        $logUri = LoggerHelper::prepareUrl($uri);
         $options = [
-            'headers' => [
-                'X-APP-ID' => $this->appId,
-                'X-APP-SECRET' => $this->appSecret,
-            ],
+            'headers' => ['X-APP-ID' => $this->appId, 'X-APP-SECRET' => $this->appSecret],
             'timeout' => $this->timeout,
+            'max_redirects' => 0,
         ];
-
         if (null !== $this->language) {
             $options['headers']['Accept-Language'] = $this->language;
         }
-
         if (null !== $this->clientToken) {
             $options['headers']['X-CLIENT-TOKEN'] = $this->clientToken;
         }
-
-        if (0 !== count($query)) {
+        if ([] !== $query) {
             $options['query'] = $query;
         }
-
-        if (0 !== strlen($body)) {
+        if ('' !== $body) {
             $options['body'] = $body;
             $options['headers']['Content-Type'] = 'application/json';
         }
-
-        if (!($this->logger instanceof NullLogger)) {
-            $this->logger->info(sprintf(
-                LoggerHelper::REQUEST_LOG_FORMAT,
-                $method,
-                $uri
-            ));
-
-            $this->logger->debug(sprintf(
-                LoggerHelper::REQUEST_LOG_FORMAT,
-                $method,
-                $uri
-            ), LoggerHelper::prepareRequestOptionsContext($options));
+        if (!$this->logger instanceof NullLogger) {
+            $message = sprintf(LoggerHelper::REQUEST_LOG_FORMAT, $method, $logUri);
+            $this->logger->info($message);
+            $this->logger->debug($message, LoggerHelper::prepareRequestOptionsContext($options));
         }
 
         try {
             $response = $this->httpClient->request($method, $uri, $options);
+            $this->captureResponseMetadata($response);
+            // Сохраняем HTTP-исключение Symfony и ответ как исходную причину.
+            $content = $response->getContent();
 
-            $responseHeaders = $response->getHeaders();
-
-            $this->lastXRateLimitRemaining = $responseHeaders['x-ratelimit-remaining'][0] ?? null;
-            $this->lastXRateLimitLimit = $responseHeaders['x-ratelimit-limit'][0] ?? null;
-            $this->lastStatusCode = $response->getStatusCode();
-
-            $responseContent = $response->getContent();
-
-            if (!($this->logger instanceof NullLogger)) {
-                $this->logger->info(sprintf(
-                    LoggerHelper::RESPONSE_LOG_FORMAT,
-                    $method,
-                    $uri,
-                    $this->lastStatusCode
-                ));
-
-                $this->logger->debug(sprintf(
-                    LoggerHelper::RESPONSE_LOG_FORMAT,
-                    $method,
-                    $uri,
-                    $this->lastStatusCode
-                ), [
-                    'lastXRateLimitRemaining' => $this->lastXRateLimitRemaining,
-                    'lastXRateLimitLimit' => $this->lastXRateLimitLimit,
-                    'content' => $responseContent,
-                ]);
+            if (!$this->logger instanceof NullLogger) {
+                $message = sprintf(LoggerHelper::RESPONSE_LOG_FORMAT, $method, $logUri, $this->lastStatusCode);
+                $this->logger->info($message);
+                $this->logger->debug($message, $this->responseContext());
             }
 
-            return $responseContent;
-        } catch (ClientExceptionInterface $e) {
-            if (!($this->logger instanceof NullLogger)) {
-                $this->logger->error(sprintf(
-                    LoggerHelper::THROW_LOG_FORMAT,
-                    $e->getCode(),
-                    $e->getMessage()
-                ));
-
-                $this->logger->debug(sprintf(
-                    LoggerHelper::THROW_LOG_FORMAT,
-                    $e->getCode(),
-                    $e->getMessage()
-                ), LoggerHelper::prepareThrowableContext($e));
-            }
-
+            return $content;
+        } catch (ClientExceptionInterface $error) {
             try {
-                $responseHeaders = $e->getResponse()->getHeaders(false);
-
-                $this->lastXRateLimitRemaining = $responseHeaders['x-ratelimit-remaining'][0] ?? null;
-                $this->lastXRateLimitLimit = $responseHeaders['x-ratelimit-limit'][0] ?? null;
-                $this->lastStatusCode = $e->getResponse()->getStatusCode();
-
-                $responseContentJson = $e->getResponse()->getContent(false);
-
-                $responseContent = json_decode($responseContentJson, true);
-
-                if (!is_array($responseContent)) {
-                    throw $e;
+                if (null === $this->lastStatusCode) {
+                    $this->captureResponseMetadata($error->getResponse());
                 }
-
-                if (isset($responseContent['message']) && !is_string($responseContent['message'])) {
-                    throw $e;
-                }
-
-                if (isset($responseContent['code']) && !is_string($responseContent['code'])) {
-                    throw $e;
-                }
-
-                if (isset($responseContent['details']) && !is_array($responseContent['details'])) {
-                    throw $e;
-                }
-
-                throw new ApiException(
-                    $responseContent['message'] ?? '',
-                    $responseContent['code'] ?? '',
-                    $responseContent['details'] ?? [],
-                    $e->getResponse()->getStatusCode(),
-                    $e->getMessage(),
-                    $e->getCode(),
-                    $e
-                );
-            } catch (ClientExceptionInterface|TransportExceptionInterface|RedirectionExceptionInterface|ServerExceptionInterface $e) {
-                throw new HttpException($e->getMessage(), $e->getCode(), $e);
-            }
-        } catch (TransportExceptionInterface|RedirectionExceptionInterface|ServerExceptionInterface $e) {
-            if (!($this->logger instanceof NullLogger)) {
-                $this->logger->error(sprintf(
-                    LoggerHelper::THROW_LOG_FORMAT,
-                    $e->getCode(),
-                    $e->getMessage()
-                ));
-
-                $this->logger->debug(sprintf(
-                    LoggerHelper::THROW_LOG_FORMAT,
-                    $e->getCode(),
-                    $e->getMessage()
-                ), LoggerHelper::prepareThrowableContext($e));
+                $this->logFailure($error);
+                $data = json_decode($error->getResponse()->getContent(false), true, 512, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                throw new HttpException($error->getMessage(), $error->getCode(), $error);
+            } catch (TransportExceptionInterface $readError) {
+                $this->logFailure($readError);
+                throw new HttpException($readError->getMessage(), $readError->getCode(), $readError);
             }
 
-            throw new HttpException($e->getMessage(), $e->getCode(), $e);
+            if (!is_array($data)
+                || (isset($data['message']) && !is_string($data['message']))
+                || (isset($data['code']) && !is_string($data['code']))
+                || (isset($data['details']) && !is_array($data['details']))) {
+                throw new HttpException($error->getMessage(), $error->getCode(), $error);
+            }
+
+            throw new ApiException(
+                $data['message'] ?? '',
+                $data['code'] ?? '',
+                $data['details'] ?? [],
+                $this->lastStatusCode,
+                $error->getMessage(),
+                $error->getCode(),
+                $error,
+            );
+        } catch (TransportExceptionInterface|RedirectionExceptionInterface|ServerExceptionInterface $error) {
+            $this->logFailure($error);
+
+            throw new HttpException($error->getMessage(), $error->getCode(), $error);
         }
+    }
+
+    private function captureResponseMetadata(ResponseInterface $response): void
+    {
+        $this->lastStatusCode = $response->getStatusCode();
+        $headers = $response->getHeaders(false);
+        $this->lastXRateLimitRemaining = $headers['x-ratelimit-remaining'][0] ?? null;
+        $this->lastXRateLimitLimit = $headers['x-ratelimit-limit'][0] ?? null;
+    }
+
+    private function responseContext(): array
+    {
+        return [
+            'lastStatusCode' => $this->lastStatusCode,
+            'lastXRateLimitRemaining' => $this->lastXRateLimitRemaining,
+            'lastXRateLimitLimit' => $this->lastXRateLimitLimit,
+        ];
+    }
+
+    private function logFailure(\Throwable $error): void
+    {
+        if ($this->logger instanceof NullLogger) {
+            return;
+        }
+        $message = sprintf(LoggerHelper::THROW_LOG_FORMAT, $error->getCode(), $error::class);
+        $this->logger->error($message);
+        $this->logger->debug($message, LoggerHelper::prepareThrowableContext($error) + $this->responseContext());
     }
 
     public function setClientToken(string $clientToken): void

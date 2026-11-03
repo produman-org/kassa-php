@@ -6,6 +6,8 @@
 
 * [Требования](#Требования)
 * [Установка](#Установка)
+* [Переход с 1.x](#переход-с-1x)
+* [Проверки SDK](#проверки-sdk)
 * [Порядок работы с клиентом](#Порядок-работы-с-клиентом)
 * [Примеры использования основных API методов](#Примеры-использования-основных-API-методов)
   * [Инициализация клиента](#1-инициализация-клиента) 
@@ -24,7 +26,9 @@
 * [Код товара или услуги в позиции](#код-товара-или-услуги-в-позиции)
 
 ## Требования
-PHP 7.4.0 (и выше) с расширениями json и curl
+PHP 8.5 с расширениями json и curl, Symfony HttpClient `^8.1`, HttpClient Contracts `^3.7` и PSR-3 `^3.0`.
+
+Эта ветка готовит следующую основную версию SDK (2.x). Требования и примеры ниже относятся к ней; публикация стабильного выпуска выполняется отдельно.
 
 ## Установка
 ### В консоли с помощью Composer
@@ -36,12 +40,12 @@ composer require produman-org/kassa-php
 ```
 
 ### В файле composer.json своего проекта
-1. Добавьте строку `"produman-org/kassa-php": "^1.0"` в список зависимостей вашего проекта в файле composer.json
+1. Добавьте строку `"produman-org/kassa-php": "^2.0"` в список зависимостей вашего проекта в файле composer.json
 ```
 ...
     "require": {
-        "php": ">=7.4.0",
-        "produman-org/kassa-php": "^1.0"
+        "php": "^8.5",
+        "produman-org/kassa-php": "^2.0"
 ...
 ```
 2. Обновите зависимости проекта. В консоли перейдите в каталог, где лежит composer.json, и выполните команду:
@@ -52,6 +56,34 @@ composer update
 ```php
 require __DIR__ . '/vendor/autoload.php';
 ```
+
+## Переход с 1.x
+
+Перед установкой 2.x подготовьте PHP 8.5 и совместимые версии зависимостей. Вызовы `Builder::buildClient()` и `Builder::buildApplicationClient()`, группы методов и изменяемые модели запросов сохранены.
+
+- SDK запрещает автоматические HTTP-перенаправления. Ответ 3xx приводит к `HttpException`; реквизиты не передаются адресу из `Location`. Для альтернативной точки API укажите её окончательный адрес через `PRODUMAN_API_URL`.
+- Собственный журнал SDK содержит метаданные: метод, адрес без userinfo/query/fragment, HTTP-статус и доступные лимиты. Тела запросов/ответов, заголовки аутентификации, сырые сообщения исключений и trace не записываются. Передача самого исключения в сторонний логгер регулируется настройками этого логгера.
+- Ошибка кодирования запроса, например неверный UTF-8, приводит к `JsonRequestException` до вызова HTTP-клиента. Ошибка синтаксиса или скалярный корень JSON успешного ответа — к `JsonResponseException`. При ошибке синтаксиса исходный `JsonException` сохранён в `getPrevious()`; допустимые корневые массивы продолжают обрабатываться.
+- Структурированная ошибка 4xx остаётся `ApiException`. Повреждённое тело ошибки 4xx, ответ 5xx, перенаправление или сетевой сбой дают `HttpException` с исходной причиной. Методы без DTO, например удаление, допускают пустой успешный ответ.
+- Сведения `getLastStatusCode()` и `getLastXRateLimit*()` относятся к последнему вызову HTTP-адаптера. Они очищаются в начале этого вызова и сохраняют уже полученные сведения при сбое чтения тела. Ошибка кодирования до HTTP-вызова оставляет метаданные предыдущего HTTP-запроса.
+
+Параметр `timeout` ограничивает простой соединения, а не суммарную длительность запроса. SDK не выполняет автоматические повторы: повтор кассовой операции после неизвестного результата требует проверки её состояния и контракта API.
+
+## Проверки SDK
+
+Для разработки используется PHPUnit 13.4. Установите зависимости на PHP 8.5 с расширениями curl, dom, mbstring, xml и xmlwriter:
+
+```bash
+composer install
+composer test
+composer test:integration
+composer test:consumer
+composer test:lowest
+```
+
+`test` запускает весь набор, включая локальный HTTP-сервер с настоящим CurlHttpClient. `test:consumer` устанавливает копию изменённого SDK в отдельный временный Composer-проект без его зависимостей разработки и проверяет публичные методы из `vendor`. `test:lowest` сначала выбирает минимальные production-версии, затем фиксирует их и добавляет PHPUnit для полного прогона. Эти две проверки используют сеть только для установки пакетов Composer, а HTTP-запросы выполняют к локальным fixtures с вымышленными реквизитами. Репозиторий приложения-потребителя не требуется.
+
+Локальным тестам нужны `proc_open` и два свободных порта, по умолчанию 42100–42101; первый задаётся переменной `KASSA_TEST_PORT_BASE`. Серверы и временные проекты удаляются после проверки. GitHub Actions проверяет линию 8.1, последние разрешённые зависимости и нижние production-границы; предупреждения и пропуски обязательных тестов делают прогон неуспешным.
 
 ## Порядок работы с клиентом
 
@@ -185,7 +217,6 @@ use ProdumanApi\Request\Operations\CreateSell;
 use ProdumanApi\Request\Operations\CreateShiftOpen;
 use ProdumanApi\Request\Operations\CreateShiftClose;
 use ProdumanApi\Request\Operations\CreateXReport;
-use ProdumanApi\Request\Operations\DetailsShiftCloseModel;
 use ProdumanApi\Request\Operations\Model\ClientModel;
 use ProdumanApi\Request\Operations\Model\DetailsCashModel;
 use ProdumanApi\Request\Operations\Model\DetailsSellModel;
@@ -335,7 +366,7 @@ $details->receiptContact = 'test@test.ru';
 $details->print = true;
 $details->internetPayment = true;
 $details->settlementPlace = 'Россия, Москва';
-$details->documentNumber = '12345'
+$details->documentNumber = '12345';
 $details->paymentSolutions = [$paymentSolution];
 $details->positions = [$position];
 $request = new CreateSell();
@@ -568,6 +599,7 @@ use ProdumanApi\Builder;
 use ProdumanApi\Response\Cashboxes\CashboxDto;
 use ProdumanApi\Exception\ApiException;
 use ProdumanApi\Exception\HttpException;
+use ProdumanApi\Exception\JsonRequestException;
 use ProdumanApi\Exception\JsonResponseException;
 
 $client = Builder::buildClient(
@@ -585,6 +617,8 @@ try {
         . '|' . $e->getApiCode() . '|' . print_r($e->getApiDetails(), true) . '|' . $e->getStatusCode());
 } catch (HttpException $e) {
     var_dump('HTTP error: ' . $e->getMessage());
+} catch (JsonRequestException $e) {
+    var_dump('JSON request error: ' . $e->getMessage());
 } catch (JsonResponseException $e) {
     var_dump('JSON response error: ' . $e->getMessage());
 } catch (\Exception $e) {
@@ -602,11 +636,11 @@ $client = Builder::buildClient(
     'someAppSecret'
 );
   
-// квота  
-var_dump($client->getLastXRateLimitRemaining());
+// общий лимит
+var_dump($client->getLastXRateLimitLimit());
 
 // текущий остаток квоты
-var_dump($client->getLastXRateLimitLimit());
+var_dump($client->getLastXRateLimitRemaining());
 
 // HTTP-код ответа последнего запроса
 var_dump($client->getLastStatusCode());

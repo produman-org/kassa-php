@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ProdumanApi\Tests\ClientHelper;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ProdumanApi\ClientHelper\Operations;
 use ProdumanApi\ClientHelper\Orders;
@@ -17,9 +18,7 @@ use ProdumanApi\Request\Orders\Model\PositionModel;
 
 final class ItemCodeTest extends TestCase
 {
-    /**
-     * @dataProvider codes
-     */
+    #[DataProvider('codes')]
     public function testOrderHelpersPreserveCodeInRequestsAndResponses(?string $code): void
     {
         $position = new PositionModel();
@@ -35,6 +34,7 @@ final class ItemCodeTest extends TestCase
                     $data = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
                     $this->assertSame($code, $data['positions'][0]['itemCode']);
                 }
+
                 return json_encode('GET' === $method && 'orders' === $action ? ['items' => [$response]] : $response, JSON_THROW_ON_ERROR);
             }
         );
@@ -45,9 +45,7 @@ final class ItemCodeTest extends TestCase
         $this->assertSame($code, $orders->list()->items[0]->positions[0]->itemCode);
     }
 
-    /**
-     * @dataProvider codes
-     */
+    #[DataProvider('codes')]
     public function testDirectSellAndBuyPreserveCode(?string $code): void
     {
         foreach ([false, true] as $buy) {
@@ -66,6 +64,7 @@ final class ItemCodeTest extends TestCase
                     $this->assertSame('operations', $action);
                     $this->assertSame($buy ? 'BUY' : 'SELL', $data['operationType']);
                     $this->assertSame($code, $data['details']['positions'][0]['itemCode']);
+
                     return '{}';
                 }
             );
@@ -93,6 +92,7 @@ final class ItemCodeTest extends TestCase
             function (string $method, string $action, array $query, string $body): string {
                 $data = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
                 $this->assertArrayNotHasKey('itemCode', $data['positions'][0]);
+
                 return '{"positions":[{"name":"Товар"}]}';
             }
         );
