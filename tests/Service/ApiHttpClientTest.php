@@ -179,7 +179,7 @@ final class ApiHttpClientTest extends TestCase
     {
         $responseFactory = static fn () => new MockResponse((static function () {
             yield '{';
-            yield new TransportException('Ошибка тела');
+            throw new TransportException('Ошибка тела');
         })(), ['http_code' => $status, 'response_headers' => ['Content-Type: application/json', 'x-ratelimit-remaining: 9', 'x-ratelimit-limit: 10']]);
         $reference = (new MockHttpClient($responseFactory()))->request('GET', 'https://fixture.test/orders');
         try {
