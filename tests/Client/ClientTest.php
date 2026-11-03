@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ProdumanApi\Tests\Client;
 
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use ProdumanApi\Client\ApplicationClient;
 use ProdumanApi\Client\Client;
@@ -21,14 +22,11 @@ use ProdumanApi\Tests\ReflectionHelper;
 
 class ClientTest extends TestCase
 {
-    /**
-     * @testWith
-     * ["1", "11", 1]
-     * ["2", "22", 2]
-     * ["3", "33", 3]
-     * ["4", "44", 4]
-     * ["5", "55", 5]
-     */
+    #[TestWith(['1', '11', 1])]
+    #[TestWith(['2', '22', 2])]
+    #[TestWith(['3', '33', 3])]
+    #[TestWith(['4', '44', 4])]
+    #[TestWith(['5', '55', 5])]
     public function testClient(string $remaining, string $limit, int $status): void
     {
         $mockApiHttpClient = new MockApiHttpClient('', $remaining, $limit, $status);
@@ -51,14 +49,11 @@ class ClientTest extends TestCase
         $this->assertEquals($status, $client->getLastStatusCode());
     }
 
-    /**
-     * @testWith
-     * ["1", "11", 1]
-     * ["2", "22", 2]
-     * ["3", "33", 3]
-     * ["4", "44", 4]
-     * ["5", "55", 5]
-     */
+    #[TestWith(['1', '11', 1])]
+    #[TestWith(['2', '22', 2])]
+    #[TestWith(['3', '33', 3])]
+    #[TestWith(['4', '44', 4])]
+    #[TestWith(['5', '55', 5])]
     public function testApplicationClient(string $remaining, string $limit, int $status): void
     {
         $mockApiHttpClient = new MockApiHttpClient('', $remaining, $limit, $status);

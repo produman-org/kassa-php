@@ -3,7 +3,11 @@
     "description": "PHP library for the Produman.Kassa API",
     "type": "library",
     "license": "MIT",
-    "keywords": ["produman", "kassa", "api"],
+    "keywords": [
+        "produman",
+        "kassa",
+        "api"
+    ],
     "authors": [
         {
             "name": "Produman",
@@ -11,15 +15,16 @@
         }
     ],
     "require": {
-        "php": ">=7.4.0",
+        "php": "^8.5",
         "ext-json": "*",
         "ext-curl": "*",
-        "psr/log": "^1|^2|^3",
-        "symfony/http-client": "^5.4|^6.0|^7.0"
+        "psr/log": "^3.0",
+        "symfony/http-client": "^8.1",
+        "symfony/http-client-contracts": "^3.7"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.39",
-        "phpunit/phpunit": "^9.6"
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "phpunit/phpunit": "^13.4"
     },
     "autoload": {
         "psr-4": {
@@ -30,5 +35,11 @@
         "psr-4": {
             "ProdumanApi\\Tests\\": "tests/"
         }
+    },
+    "scripts": {
+        "test": "@php -d error_reporting=-1 vendor/bin/phpunit",
+        "test:integration": "@php -d error_reporting=-1 vendor/bin/phpunit --group integration",
+        "test:consumer": "@php tools/check-consumer.php",
+        "test:lowest": "@php tools/check-consumer.php --prefer-lowest --run-tests"
     }
 }

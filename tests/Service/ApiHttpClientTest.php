@@ -4,348 +4,341 @@ declare(strict_types=1);
 
 namespace ProdumanApi\Tests\Service;
 
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use ProdumanApi\Exception\ApiException;
 use ProdumanApi\Exception\HttpException;
 use ProdumanApi\Service\ApiHttpClient;
-use ProdumanApi\Service\LoggerHelper;
 use ProdumanApi\Tests\Mock\MockPsrLogger;
-use ProdumanApi\Tests\Mock\MockSymfonyClientException;
-use ProdumanApi\Tests\Mock\MockSymfonyHttpClient;
-use ProdumanApi\Tests\Mock\MockSymfonyHttpException;
-use ProdumanApi\Tests\Mock\MockSymfonyResponse;
-use ProdumanApi\Tests\ReflectionHelper;
 use Psr\Log\NullLogger;
+use Symfony\Component\HttpClient\Exception\TransportException;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
+use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
 
 final class ApiHttpClientTest extends TestCase
 {
-    /**
-     * @testWith
-     * ["a"]
-     * ["b"]
-     * ["c"]
-     * ["d"]
-     * ["e"]
-     */
-    public function testSetClientToken(string $clientToken): void
+    private string|false $originalUrl;
+    private array $originalEnv;
+
+    protected function setUp(): void
     {
-        $symfonyHttpClient = new MockSymfonyHttpClient();
-
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
-
-        // without token
-        $apiHttpClient->request('GET', '');
-        $requestOptions = $symfonyHttpClient->getRequestOptions();
-
-        $this->assertContains('headers', array_keys($requestOptions));
-        $this->assertNotContains('X-CLIENT-TOKEN', array_keys($requestOptions['headers']));
-
-        // with token
-        $apiHttpClient->setClientToken($clientToken);
-        $apiHttpClient->request('GET', '');
-        $requestOptions = $symfonyHttpClient->getRequestOptions();
-
-        $this->assertContains('headers', array_keys($requestOptions));
-        $this->assertContains('X-CLIENT-TOKEN', array_keys($requestOptions['headers']));
-        $this->assertEquals($clientToken, $requestOptions['headers']['X-CLIENT-TOKEN']);
+        $this->originalUrl = getenv('PRODUMAN_API_URL');
+        $this->originalEnv = $_ENV;
+        putenv('PRODUMAN_API_URL');
+        unset($_ENV['PRODUMAN_API_URL']);
     }
 
-    /**
-     * @testWith
-     * ["ru"]
-     * ["en"]
-     * ["de"]
-     * ["fr"]
-     * ["es"]
-     */
-    public function testSetLanguage(string $language): void
+    protected function tearDown(): void
     {
-        $symfonyHttpClient = new MockSymfonyHttpClient();
-
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
-
-        // without language
-        $apiHttpClient->request('GET', '');
-        $requestOptions = $symfonyHttpClient->getRequestOptions();
-
-        $this->assertContains('headers', array_keys($requestOptions));
-        $this->assertNotContains('Accept-Language', array_keys($requestOptions['headers']));
-
-        // with language
-        $apiHttpClient->setLanguage($language);
-        $apiHttpClient->request('GET', '');
-        $requestOptions = $symfonyHttpClient->getRequestOptions();
-
-        $this->assertContains('headers', array_keys($requestOptions));
-        $this->assertContains('Accept-Language', array_keys($requestOptions['headers']));
-        $this->assertEquals($language, $requestOptions['headers']['Accept-Language']);
+        putenv(false === $this->originalUrl ? 'PRODUMAN_API_URL' : 'PRODUMAN_API_URL=' . $this->originalUrl);
+        $_ENV = $this->originalEnv;
     }
 
-    /**
-     * @testWith
-     * ["101", "102", 100]
-     * ["201", "202", 200]
-     * ["301", "302", 300]
-     * ["401", "402", 400]
-     * ["501", "502", 500]
-     */
-    public function testLastVariables(string $lastXRateLimitRemaining, string $lastXRateLimitLimit, int $lastStatusCode): void
+    #[TestWith(['GET', [], '', null, null])]
+    #[TestWith(['POST', [], '{"name":"Товар"}', 'token', 'ru'])]
+    #[TestWith(['PUT', ['q' => 'hello world'], '{}', null, 'en'])]
+    #[TestWith(['PATCH', [], '{}', 'token', null])]
+    #[TestWith(['DELETE', [], '', null, null])]
+    public function testRequestOptions(string $method, array $query, string $body, ?string $token, ?string $language): void
     {
-        $symfonyResponse = new MockSymfonyResponse([
-            'x-ratelimit-remaining' => [$lastXRateLimitRemaining],
-            'x-ratelimit-limit' => [$lastXRateLimitLimit],
-        ], [], $lastStatusCode);
+        $captured = [];
+        $http = new MockHttpClient(static function ($requestMethod, $url, $options) use (&$captured) {
+            $captured = [$requestMethod, $url, $options];
 
-        $symfonyHttpClient = new MockSymfonyHttpClient($symfonyResponse);
-
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
-
-        $apiHttpClient->request('GET', '');
-
-        $this->assertEquals($lastXRateLimitRemaining, $apiHttpClient->getLastXRateLimitRemaining());
-        $this->assertEquals($lastXRateLimitLimit, $apiHttpClient->getLastXRateLimitLimit());
-        $this->assertEquals($lastStatusCode, $apiHttpClient->getLastStatusCode());
-    }
-
-    /**
-     * @testWith
-     * ["aaa", "https://a.a"]
-     * ["bbb"]
-     * ["ccc", "https://c.c"]
-     * ["ddd"]
-     * ["eee", "https://e.e"]
-     */
-    public function testEnvUri(string $action, ?string $otherUrl = null): void
-    {
-        $constants = ReflectionHelper::getConstants(ApiHttpClient::class);
-
-        $this->assertContains('API_URL', array_keys($constants));
-        $this->assertContains('API_VERSION', array_keys($constants));
-
-        $apiUrl = $constants['API_URL'];
-        $apiVersion = $constants['API_VERSION'];
-
-        if (null !== $otherUrl) {
-            putenv('PRODUMAN_API_URL=' . $otherUrl);
-
-            $apiUrl = $otherUrl;
+            return new MockResponse('{"id":"response-id"}');
+        });
+        $api = new ApiHttpClient($http, new NullLogger(), 'app-id', 'app-secret', 5);
+        if (null !== $token) {
+            $api->setClientToken($token);
         }
+        $api->setLanguage($language);
 
-        $symfonyHttpClient = new MockSymfonyHttpClient();
-
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
-
-        $uri = sprintf('%s/%s/%s', $apiUrl, $apiVersion, $action);
-
-        $apiHttpClient->request('GET', $action);
-
-        $this->assertEquals($uri, $symfonyHttpClient->getRequestUrl());
-
-        putenv('PRODUMAN_API_URL=' . null);
+        self::assertSame('{"id":"response-id"}', $api->request($method, 'orders', $query, $body));
+        self::assertSame($method, $captured[0]);
+        self::assertStringStartsWith('https://api.produman.org/kassa/v1/orders', $captured[1]);
+        if ($query) {
+            self::assertStringContainsString('q=hello%20world', $captured[1]);
+        }
+        $headers = [];
+        foreach ($captured[2]['headers'] as $header) {
+            [$name, $value] = explode(': ', $header, 2);
+            $headers[strtolower($name)] = $value;
+        }
+        self::assertSame('app-id', $headers['x-app-id']);
+        self::assertSame('app-secret', $headers['x-app-secret']);
+        self::assertSame($token, $headers['x-client-token'] ?? null);
+        self::assertSame($language, $headers['accept-language'] ?? null);
+        self::assertSame($body, $captured[2]['body'] ?? '');
+        self::assertEquals(5, $captured[2]['timeout']);
+        self::assertSame(0, $captured[2]['max_redirects'] ?? null);
+        if ('' !== $body) {
+            self::assertSame('application/json', $headers['content-type']);
+        }
     }
 
-    /**
-     * @testWith
-     * ["aaa", 200, "aaa", "NOT_FOUND", ["a", "aa"]]
-     * ["aaa", 200, null, "NOT_FOUND", ["a", "aa"]]
-     * ["aaa", 200, "aaa", null, ["a", "aa"]]
-     * ["aaa", 200, null, "NOT_FOUND", []]
-     * ["aaa", 200, "aaa", null, null]
-     * ["aaa", 200, "aaa", "NOT_FOUND", null]
-     * ["aaa", 200, null, "NOT_FOUND", ["a", "aa"]]
-     * ["aaa", 200, null, null, ["a", "aa"]]
-     * ["aaa", 200, null, null, null]
-     */
-    public function testRequestGoodApiException(string $message, int $code, $apiMessage, $apiCode, $apiDetails): void
+    #[TestWith([null, null, 'https://api.produman.org/kassa'])]
+    #[TestWith(['', '', 'https://api.produman.org/kassa'])]
+    #[TestWith(['https://process.test/kassa', null, 'https://process.test/kassa'])]
+    #[TestWith([null, 'https://env.test/kassa', 'https://env.test/kassa'])]
+    #[TestWith(['https://process.test/kassa', 'https://env.test/kassa', 'https://process.test/kassa'])]
+    public function testApiUrlPrecedence(?string $process, ?string $env, string $expected): void
     {
-        $symfonyHttpExceptionResponse = new MockSymfonyResponse([], array_filter([
-            'message' => $apiMessage,
-            'code' => $apiCode,
-            'details' => $apiDetails,
-        ]));
+        if (null !== $process) {
+            putenv('PRODUMAN_API_URL=' . $process);
+        }
+        if (null !== $env) {
+            $_ENV['PRODUMAN_API_URL'] = $env;
+        }
+        $http = new MockHttpClient(static function ($method, $url) use ($expected) {
+            self::assertSame($expected . '/v1/orders', $url);
 
-        $symfonyHttpClient = new MockSymfonyHttpClient(null, new MockSymfonyClientException($symfonyHttpExceptionResponse, $message, $code));
-
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
-
-        $this->expectException(ApiException::class);
-        $this->expectExceptionMessage($message);
-        $this->expectExceptionCode($code);
-
-        $apiHttpClient->request('GET', '');
+            return new MockResponse('{}');
+        });
+        (new ApiHttpClient($http, new NullLogger(), '', '', 1))->request('GET', 'orders');
     }
 
-    /**
-     * @testWith
-     * ["aaa", 200, ["aaa"], "NOT_FOUND", ["a", "aa"]]
-     * ["aaa", 200, "aaa", ["NOT_FOUND"], ["a", "aa"]]
-     * ["aaa", 200, "aaa", "NOT_FOUND", "aaa"]
-     * ["aaa", 200, 123, "NOT_FOUND", ["a", "aa"]]
-     * ["aaa", 200, "aaa", 123, ["a", "aa"]]
-     * ["aaa", 200, "aaa", "NOT_FOUND", 123]
-     */
-    public function testRequestBadApiException(string $message, int $code, $apiMessage, $apiCode, $apiDetails): void
+    #[TestWith([302, HttpException::class])]
+    #[TestWith([400, ApiException::class])]
+    #[TestWith([401, ApiException::class])]
+    #[TestWith([429, ApiException::class])]
+    #[TestWith([500, HttpException::class])]
+    #[TestWith([503, HttpException::class])]
+    public function testMetadataReplacedOnHttpFailure(int $status, string $exceptionClass): void
     {
-        $symfonyHttpExceptionResponse = new MockSymfonyResponse([], array_filter([
-            'message' => $apiMessage,
-            'code' => $apiCode,
-            'details' => $apiDetails,
-        ]));
-
-        $symfonyHttpClient = new MockSymfonyHttpClient(null, new MockSymfonyClientException($symfonyHttpExceptionResponse, $message, $code));
-
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
-
-        $this->expectException(HttpException::class);
-        $this->expectExceptionMessage($message);
-        $this->expectExceptionCode($code);
-
-        $apiHttpClient->request('GET', '');
+        $http = new MockHttpClient([
+            new MockResponse('{}', ['response_headers' => ['x-ratelimit-remaining: 5', 'x-ratelimit-limit: 10']]),
+            new MockResponse('{}', ['http_code' => $status, 'response_headers' => ['x-ratelimit-remaining: 0', 'x-ratelimit-limit: 20']]),
+            new MockResponse('{}'),
+        ]);
+        $api = new ApiHttpClient($http, new NullLogger(), '', '', 1);
+        $api->request('GET', 'orders');
+        self::assertSame(200, $api->getLastStatusCode());
+        self::assertSame('5', $api->getLastXRateLimitRemaining());
+        try {
+            $api->request('GET', 'orders');
+            self::fail('Ожидалось исключение HTTP/API');
+        } catch (\RuntimeException $error) {
+            self::assertInstanceOf($exceptionClass, $error);
+            self::assertInstanceOf(HttpExceptionInterface::class, $error->getPrevious());
+        }
+        self::assertSame($status, $api->getLastStatusCode());
+        self::assertSame('0', $api->getLastXRateLimitRemaining());
+        self::assertSame('20', $api->getLastXRateLimitLimit());
+        $api->request('GET', 'orders');
+        self::assertSame(200, $api->getLastStatusCode());
+        self::assertNull($api->getLastXRateLimitRemaining());
+        self::assertNull($api->getLastXRateLimitLimit());
     }
 
-    /**
-     * @testWith
-     * ["aaa", 100]
-     * ["bbb", 200]
-     * ["ccc", 300]
-     * ["ddd", 400]
-     * ["eee", 500]
-     */
-    public function testRequestHttpException(string $message, int $code): void
+    public function testMetadataClearedOnFailureBeforeHeaders(): void
     {
-        $symfonyHttpClient = new MockSymfonyHttpClient(null, new MockSymfonyHttpException(new MockSymfonyResponse(), $message, $code));
+        $calls = 0;
+        $cause = new TransportException('Нет соединения');
+        $http = new MockHttpClient(static function () use (&$calls, $cause) {
+            if (++$calls > 1) {
+                throw $cause;
+            }
 
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, new NullLogger(), '', '', 1);
-
-        $this->expectException(HttpException::class);
-        $this->expectExceptionMessage($message);
-        $this->expectExceptionCode($code);
-
-        $apiHttpClient->request('GET', '');
+            return new MockResponse('{}', ['response_headers' => ['x-ratelimit-remaining: 5']]);
+        });
+        $api = new ApiHttpClient($http, new NullLogger(), '', '', 1);
+        $api->request('GET', 'orders');
+        try {
+            $api->request('GET', 'orders');
+            self::fail('Ожидалась сетевая ошибка');
+        } catch (HttpException $error) {
+            self::assertSame($cause, $error->getPrevious());
+        }
+        self::assertNull($api->getLastStatusCode());
+        self::assertNull($api->getLastXRateLimitRemaining());
+        self::assertNull($api->getLastXRateLimitLimit());
     }
 
-    /**
-     * @testWith
-     * ["a", "aa", 1, "101", "102", 100, "GET", "aaa", ["a", "a"], ["aa", "aa"], ["aaa", "aaa"]]
-     * ["b", "bb", 2, "201", "202", 200, "POST", "bbb", ["b", "b"], ["bb", "bb"], ["bbb", "bbb"]]
-     * ["c", "cc", 3, "301", "302", 300, "PUT", "ccc", ["c", "c"], ["cc", "cc"], ["ccc", "ccc"]]
-     * ["d", "dd", 4, "401", "402", 400, "PATCH", "ddd", ["d", "d"], ["dd", "dd"], ["ddd", "ddd"]]
-     * ["e", "ee", 5, "501", "502", 500, "DELETE", "eee", ["e", "e"], ["ee", "ee"], ["eee", "eee"]]
-     */
-    public function testRequest(
-        string $appId,
-        string $appSecret,
-        int $timeout,
-        string $lastXRateLimitRemaining,
-        string $lastXRateLimitLimit,
-        int $lastStatusCode,
-        string $method,
-        string $action,
-        array $query,
-        array $body,
-        array $responseBody
-    ): void {
-        $constants = ReflectionHelper::getConstants(ApiHttpClient::class);
-
-        $this->assertContains('API_URL', array_keys($constants));
-        $this->assertContains('API_VERSION', array_keys($constants));
-
-        $apiUrl = $constants['API_URL'];
-        $apiVersion = $constants['API_VERSION'];
-
-        $symfonyResponse = new MockSymfonyResponse([
-            'x-ratelimit-remaining' => [$lastXRateLimitRemaining],
-            'x-ratelimit-limit' => [$lastXRateLimitLimit],
-        ], $responseBody, $lastStatusCode);
-
-        $symfonyHttpClient = new MockSymfonyHttpClient($symfonyResponse);
-
-        $psrLogger = new MockPsrLogger();
-
-        $apiHttpClient = new ApiHttpClient($symfonyHttpClient, $psrLogger, $appId, $appSecret, $timeout);
-
-        $uri = sprintf('%s/%s/%s', $apiUrl, $apiVersion, $action);
-
-        $options = [
-            'headers' => [
-                'X-APP-ID' => $appId,
-                'X-APP-SECRET' => $appSecret,
-            ],
-            'timeout' => $timeout,
-        ];
-
-        if (0 === rand(0, 1)) {
-            $language = ['en', 'ru'][rand(0, 1)];
-
-            $apiHttpClient->setLanguage($language);
-
-            $options['headers']['Accept-Language'] = $language;
+    public function testFailureWhileReceivingHeaders(): void
+    {
+        $cause = new TransportException('Ошибка заголовков');
+        $api = new ApiHttpClient(new MockHttpClient(new MockResponse('', ['error' => $cause->getMessage()])), new NullLogger(), '', '', 1);
+        try {
+            $api->request('GET', 'orders');
+            self::fail('Ожидалась ошибка при получении ответа');
+        } catch (HttpException $error) {
+            self::assertInstanceOf(TransportException::class, $error->getPrevious());
         }
+        self::assertNull($api->getLastStatusCode());
+    }
 
-        if (0 === rand(0, 1)) {
-            $clientToken = (string) rand(0, 999);
-
-            $apiHttpClient->setClientToken($clientToken);
-
-            $options['headers']['X-CLIENT-TOKEN'] = $clientToken;
+    #[TestWith([200])]
+    #[TestWith([400])]
+    #[TestWith([302])]
+    #[TestWith([500])]
+    public function testMetadataKeptOnFailureReadingBody(int $status): void
+    {
+        $responseFactory = static fn () => new MockResponse((static function () {
+            yield '{';
+            yield new TransportException('Ошибка тела');
+        })(), ['http_code' => $status, 'response_headers' => ['Content-Type: application/json', 'x-ratelimit-remaining: 9', 'x-ratelimit-limit: 10']]);
+        $reference = (new MockHttpClient($responseFactory()))->request('GET', 'https://fixture.test/orders');
+        try {
+            $reference->getContent();
+            self::fail('Ожидалась исходная ошибка Symfony');
+        } catch (TransportExceptionInterface|HttpExceptionInterface $referenceCause) {
+            // Версии Symfony различаются: сбой может прервать создание HTTP-исключения.
+            // Для 4xx SDK дополнительно читает тело и получает неподавленную ошибку.
+            $causeClass = 400 === $status ? TransportException::class : $referenceCause::class;
         }
-
-        if (0 !== count($query)) {
-            $options['query'] = $query;
+        $api = new ApiHttpClient(new MockHttpClient($responseFactory()), new NullLogger(), '', '', 1);
+        try {
+            $api->request('GET', 'orders');
+            self::fail('Ожидалась ошибка чтения тела');
+        } catch (HttpException $error) {
+            self::assertInstanceOf($causeClass, $error->getPrevious());
         }
+        self::assertSame($status, $api->getLastStatusCode());
+        self::assertSame('9', $api->getLastXRateLimitRemaining());
+        self::assertSame('10', $api->getLastXRateLimitLimit());
+    }
 
-        if (0 !== strlen(json_encode($body))) {
-            $options['body'] = json_encode($body);
-            $options['headers']['Content-Type'] = 'application/json';
+    #[TestWith(['{"message":"Ошибка","code":"VALIDATION_ERROR","details":{"field":"name"}}', true])]
+    #[TestWith(['{"message":null,"code":null,"details":null}', true])]
+    #[TestWith(['{}', true])]
+    #[TestWith(['[]', true])]
+    #[TestWith(['[1,2]', true])]
+    #[TestWith(['{"message":12}', false])]
+    #[TestWith(['{"code":false}', false])]
+    #[TestWith(['{"details":"wrong"}', false])]
+    #[TestWith(['{broken', false])]
+    #[TestWith(['null', false])]
+    #[TestWith(['"text"', false])]
+    public function testClientErrorContract(string $body, bool $structured): void
+    {
+        $api = new ApiHttpClient(new MockHttpClient(new MockResponse($body, ['http_code' => 400])), new NullLogger(), '', '', 1);
+        try {
+            $api->request('GET', 'orders');
+            self::fail('Ожидалась ошибка API');
+        } catch (\RuntimeException $error) {
+            self::assertInstanceOf($structured ? ApiException::class : HttpException::class, $error);
+            self::assertInstanceOf(HttpExceptionInterface::class, $error->getPrevious());
+            if ($error instanceof ApiException) {
+                self::assertSame(400, $error->getStatusCode());
+                $decoded = json_decode($body, true);
+                self::assertSame($decoded['message'] ?? '', $error->getApiMessage());
+                self::assertSame($decoded['code'] ?? '', $error->getApiCode());
+                self::assertSame($decoded['details'] ?? [], $error->getApiDetails());
+            }
         }
+    }
 
-        $response = $apiHttpClient->request($method, $action, $query, json_encode($body));
+    #[TestWith([200])]
+    #[TestWith([302])]
+    #[TestWith([400])]
+    #[TestWith([500])]
+    #[TestWith([0])]
+    public function testLogsContainMetadataWithoutPayloadOrSecrets(int $status): void
+    {
+        $old = ini_set('zend.exception_ignore_args', '0');
+        try {
+            $logger = new MockPsrLogger();
+            $http = new MockHttpClient(static function () use ($status) {
+                if (0 === $status) {
+                    throw new TransportException('transport-secret');
+                }
 
-        $this->assertEquals($method, $symfonyHttpClient->getRequestMethod());
-        $this->assertEquals($uri, $symfonyHttpClient->getRequestUrl());
-        $this->assertEquals($options, $symfonyHttpClient->getRequestOptions());
-        $this->assertEquals($symfonyResponse->getContent(), $response);
+                return new MockResponse('{"message":"response-secret"}', ['http_code' => $status]);
+            });
+            $api = new ApiHttpClient($http, $logger, 'app', 'app-secret', 1);
+            $api->setClientToken('client-secret');
+            try {
+                $api->request('POST', 'orders?token=query-secret#fragment-secret', [], '{"secret":"request-secret"}');
+            } catch (ApiException|HttpException) {
+            }
+            $logs = json_encode($logger->getLogs(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            foreach (['app-secret', 'client-secret', 'request-secret', 'response-secret', 'query-secret', 'fragment-secret', 'transport-secret'] as $secret) {
+                self::assertStringNotContainsString($secret, $logs);
+            }
+            self::assertStringContainsString('/kassa/v1/orders', $logs);
+            self::assertNotEmpty($logger->getLogs());
+        } finally {
+            ini_set('zend.exception_ignore_args', $old);
+        }
+    }
 
-        $logs = $psrLogger->getLogs();
+    #[TestWith([400, ApiException::class])]
+    #[TestWith([302, HttpException::class])]
+    #[TestWith([500, HttpException::class])]
+    public function testHttpExceptionRaisedDirectlyByTransportRetainsMetadata(int $status, string $exceptionClass): void
+    {
+        $response = (new MockHttpClient(new MockResponse('{}', ['http_code' => $status, 'response_headers' => ['x-ratelimit-remaining: 7', 'x-ratelimit-limit: 10']])))->request('GET', 'https://fixture.test/orders');
+        try {
+            $response->getContent();
+            self::fail('Ожидалась исходная ошибка HTTP');
+        } catch (HttpExceptionInterface $cause) {
+            $calls = 0;
+            $http = new MockHttpClient(static function () use (&$calls, $cause) {
+                if (2 === ++$calls) {
+                    throw $cause;
+                }
 
-        $this->assertCount(4, $logs);
-        $this->assertEquals([
-            'info',
-            sprintf(LoggerHelper::REQUEST_LOG_FORMAT,
-                $method,
-                $uri,
-            ),
-            [],
-        ], $logs[0]);
-        $this->assertEquals([
-            'debug',
-            sprintf(LoggerHelper::REQUEST_LOG_FORMAT,
-                $method,
-                $uri,
-            ),
-            LoggerHelper::prepareRequestOptionsContext($options),
-        ], $logs[1]);
+                return new MockResponse('{}', 1 === $calls ? ['response_headers' => ['x-ratelimit-remaining: 5', 'x-ratelimit-limit: 20']] : []);
+            });
+            $api = new ApiHttpClient($http, new NullLogger(), '', '', 1);
+            $api->request('GET', 'orders');
+            self::assertSame(200, $api->getLastStatusCode());
+            self::assertSame('5', $api->getLastXRateLimitRemaining());
+            self::assertSame('20', $api->getLastXRateLimitLimit());
+            try {
+                $api->request('GET', 'orders');
+                self::fail('Ожидалась ошибка HTTP/API');
+            } catch (\RuntimeException $error) {
+                self::assertInstanceOf($exceptionClass, $error);
+                self::assertSame($cause, $error->getPrevious());
+            }
+            self::assertSame($status, $api->getLastStatusCode());
+            self::assertSame('7', $api->getLastXRateLimitRemaining());
+            self::assertSame('10', $api->getLastXRateLimitLimit());
+            $api->request('GET', 'orders');
+            self::assertSame(200, $api->getLastStatusCode());
+            self::assertNull($api->getLastXRateLimitRemaining());
+            self::assertNull($api->getLastXRateLimitLimit());
+        }
+    }
 
-        $this->assertEquals([
-            'info',
-            sprintf(LoggerHelper::RESPONSE_LOG_FORMAT,
-                $method,
-                $uri,
-                $symfonyResponse->getStatusCode()
-            ),
-            [],
-        ], $logs[2]);
-        $this->assertEquals([
-            'debug',
-            sprintf(LoggerHelper::RESPONSE_LOG_FORMAT,
-                $method,
-                $uri,
-                $symfonyResponse->getStatusCode()
-            ), [
-                'lastXRateLimitRemaining' => $symfonyResponse->getHeaders()['x-ratelimit-remaining'][0] ?? null,
-                'lastXRateLimitLimit' => $symfonyResponse->getHeaders()['x-ratelimit-limit'][0] ?? null,
-                'content' => $symfonyResponse->getContent(),
-            ],
-        ], $logs[3]);
+    #[TestWith([TransportException::class])]
+    #[TestWith([\LogicException::class])]
+    public function testFailureRecoveringEarlyHttpMetadata(string $failureClass): void
+    {
+        $failure = new $failureClass('Ошибка чтения заголовков');
+        $response = $this->createStub(ResponseInterface::class);
+        $response->method('getStatusCode')->willReturn(500);
+        $response->method('getHeaders')->willThrowException($failure);
+        $cause = new class($response) extends \RuntimeException implements ServerExceptionInterface {
+            public function __construct(private ResponseInterface $response)
+            {
+                parent::__construct('Ранняя ошибка сервера');
+            }
+
+            public function getResponse(): ResponseInterface
+            {
+                return $this->response;
+            }
+        };
+        $api = new ApiHttpClient(new MockHttpClient(static fn () => throw $cause), new NullLogger(), '', '', 1);
+        try {
+            $api->request('GET', 'orders');
+            self::fail('Ожидалась ошибка чтения метаданных');
+        } catch (\RuntimeException|\LogicException $error) {
+            if ($failure instanceof TransportException) {
+                self::assertInstanceOf(HttpException::class, $error);
+                self::assertSame($failure, $error->getPrevious());
+            } else {
+                self::assertSame($failure, $error);
+            }
+        }
+        self::assertSame(500, $api->getLastStatusCode());
+        self::assertNull($api->getLastXRateLimitRemaining());
+        self::assertNull($api->getLastXRateLimitLimit());
     }
 }

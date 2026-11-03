@@ -6,6 +6,7 @@ namespace ProdumanApi\ClientHelper;
 
 use ProdumanApi\Exception\ApiException;
 use ProdumanApi\Exception\HttpException;
+use ProdumanApi\Exception\JsonRequestException;
 use ProdumanApi\Exception\JsonResponseException;
 use ProdumanApi\Interfaces\ApiHttpClientInterface;
 use ProdumanApi\Interfaces\RequestInterface;
@@ -29,6 +30,7 @@ abstract class AbstractClientHelper
     /**
      * @throws ApiException
      * @throws HttpException
+     * @throws JsonRequestException
      * @throws JsonResponseException
      * @throws \Exception
      */
@@ -41,7 +43,12 @@ abstract class AbstractClientHelper
             if (self::METHOD_GET === $method) {
                 $query = $request->getRequestContent();
             } else {
-                $body = json_encode($request->getRequestContent());
+                $content = $request->getRequestContent();
+                try {
+                    $body = json_encode($content, JSON_THROW_ON_ERROR);
+                } catch (\JsonException $error) {
+                    throw new JsonRequestException('Unable to encode request as JSON', 0, $error);
+                }
             }
         }
 
@@ -56,10 +63,14 @@ abstract class AbstractClientHelper
             return null;
         }
 
-        $responseContentArray = json_decode($responseContent, true);
+        try {
+            $responseContentArray = json_decode($responseContent, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw new JsonResponseException('JSON response format is invalid', 0, $error);
+        }
 
-        if (JSON_ERROR_NONE !== json_last_error()) {
-            throw new JsonResponseException('JSON response format is invalid');
+        if (!is_array($responseContentArray)) {
+            throw new JsonResponseException('JSON response must decode to an array');
         }
 
         if (!is_subclass_of($responseType, ResponseInterface::class)) {
